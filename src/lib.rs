@@ -98,6 +98,22 @@ mod tests {
     }
 
     #[test]
+    fn it_works_with_attrs_optional() {
+        fn Hypermedia(target: Option<&str>) -> Component {
+            html! { <div x-target=target></div> }
+        }
+
+        assert_eq!(
+            html! { <Hypermedia target=Some("body")/> }.to_string(),
+            r#"<div x-target="body"></div>"#
+        );
+        assert_eq!(
+            html! { <Hypermedia target=None/> }.to_string(),
+            r#"<div></div>"#
+        );
+    }
+
+    #[test]
     fn it_works_with_escaped_components() {
         fn Hello(elements: Elements) -> Component {
             html! { {elements} }
@@ -344,15 +360,15 @@ pub struct Component {
 }
 
 pub trait Render {
-    fn render_to_string(&self, buffer: &mut String);
+    fn to_render_string(&self) -> String;
 }
 
 macro_rules! impl_render_int {
     ($t:ty) => {
         impl Render for $t {
-            fn render_to_string(&self, buffer: &mut String) {
+            fn to_render_string(&self) -> String {
                 let mut b = itoa::Buffer::new();
-                buffer.push_str(b.format(*self));
+                b.format(*self).to_string()
             }
         }
     };
@@ -361,9 +377,9 @@ macro_rules! impl_render_int {
 macro_rules! impl_render_float {
     ($t:ty) => {
         impl Render for $t {
-            fn render_to_string(&self, buffer: &mut String) {
+            fn to_render_string(&self) -> String {
                 let mut b = ryu::Buffer::new();
-                buffer.push_str(b.format(*self));
+                b.format(*self).to_string()
             }
         }
     };
@@ -384,26 +400,38 @@ impl_render_float!(f64);
 impl_render_float!(f32);
 
 impl Render for Component {
-    fn render_to_string(&self, buffer: &mut String) {
-        buffer.push_str(&self.html);
+    fn to_render_string(&self) -> String {
+        self.html.clone()
     }
 }
 
 impl Render for String {
-    fn render_to_string(&self, buffer: &mut String) {
-        buffer.push_str(&escape(self))
+    fn to_render_string(&self) -> String {
+        escape(self).to_string()
     }
 }
 
 impl Render for &String {
-    fn render_to_string(&self, buffer: &mut String) {
-        buffer.push_str(&escape(*self))
+    fn to_render_string(&self) -> String {
+        escape(*self).to_string()
     }
 }
 
 impl Render for &str {
-    fn render_to_string(&self, buffer: &mut String) {
-        buffer.push_str(&escape(*self))
+    fn to_render_string(&self) -> String {
+        escape(*self).to_string()
+    }
+}
+
+impl<T> Render for Option<T>
+where
+    T: Render,
+{
+    fn to_render_string(&self) -> String {
+        match self {
+            None => "__$$NONE$$__".to_string(),
+            Some(s) => s.to_render_string(),
+        }
     }
 }
 
@@ -411,8 +439,11 @@ impl<T> Render for Vec<T>
 where
     T: Render,
 {
-    fn render_to_string(&self, buffer: &mut String) {
-        self.iter().for_each(|s| s.render_to_string(buffer));
+    fn to_render_string(&self) -> String {
+        let mut buf = String::new();
+        self.iter()
+            .for_each(|s| buf.push_str(&s.to_render_string()));
+        buf
     }
 }
 
