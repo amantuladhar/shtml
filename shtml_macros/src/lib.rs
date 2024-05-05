@@ -142,26 +142,35 @@ fn render(output: &mut Output, node: &Node) {
                         match attr {
                             rstml::node::NodeAttribute::Block(_) => todo!(),
                             rstml::node::NodeAttribute::Attribute(attr) => {
-                                output.static_string.push(' ');
-                                output.push_str(&attr.key.to_string());
-                                match attr.value_literal_string() {
-                                    Some(s) => {
-                                        output.push_str("=\"");
-                                        output.push_str(&s);
-                                        output.push_str("\"");
+                                let g_ident = output.buf.clone();
+                                let key = &attr.key.to_string();
+                                if let Some(literal_string) = attr.value_literal_string() {
+                                    let attr_str = format!(r#" {}="{}""#, key, literal_string);
+                                    output.push_str(&attr_str);
+                                    continue;
+                                };
+                                let Some(expr) = attr.value() else {
+                                    continue;
+                                };
+                                let ts_stream = expr.to_token_stream();
+                                let final_ts = quote! {
+                                    {
+                                        let eval_val = #ts_stream.to_render_string();
+                                        if eval_val == "__$$NONE$$__" {
+                                              "".to_string()
+                                        } else {
+                                            #g_ident.push(' ');
+                                            #g_ident.push_str(#key);
+                                            #g_ident.push('=');
+                                            #g_ident.push('\"');
+                                            let r_str = eval_val.to_render_string();
+                                            #g_ident.push_str(&r_str);
+                                            #g_ident.push('\"');
+                                            "".to_string()
+                                        }
                                     }
-                                    None => match attr.value() {
-                                        Some(expr) => {
-                                            output.push_str("=\"");
-                                            let tokens = expr.to_token_stream();
-                                            output.push_tokens(tokens);
-                                            output.push_str("\"");
-                                        }
-                                        None => {
-                                            // TODO: bool attr?
-                                        }
-                                    },
-                                }
+                                };
+                                output.push_tokens(final_ts);
                             }
                         }
                     }
@@ -231,7 +240,8 @@ impl Output {
         self.push_expr();
         let buf = &self.buf;
         let tokens = quote! {
-            #tokens.render_to_string(&mut #buf);
+            let render_string = #tokens.to_render_string();
+            #buf.push_str(&render_string);
         };
         self.tokens.push(tokens);
     }
